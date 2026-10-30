@@ -1,0 +1,57 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'java-calculator'
+        IMAGE_TAG = 'latest'
+        CONTAINER_NAME = 'java-calculator-test'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build and Test with Maven') {
+            steps {
+                sh 'mvn -B -s settings.xml clean test package'
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .'
+            }
+        }
+
+        stage('Run Container Smoke Test') {
+            steps {
+                sh '''
+                    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
+                    OUTPUT=$(docker run --name ${CONTAINER_NAME} ${IMAGE_NAME}:${IMAGE_TAG} 20 + 5)
+                    echo "$OUTPUT"
+                    echo "$OUTPUT" | grep -q "Result: 25.0"
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rm -f ${CONTAINER_NAME} 2>/dev/null || true'
+        }
+        success {
+            echo 'Build, tests, Docker image build, and container smoke test succeeded.'
+        }
+        failure {
+            echo 'Pipeline failed. Check the stage logs.'
+        }
+    }
+}
